@@ -1,227 +1,216 @@
-# Prompt: Build a Chrome MV3 extension to bulk-manage ChatGPT chats (popup UI)
+# Prompt: Build a Chrome MV3 Side Panel extension to bulk-manage ChatGPT chats/projects (chatgpt.com)
 
-You are a software engineer building a **Chrome Extension (Manifest V3)** for **chatgpt.com** to help the user **list, filter, sort, select, and bulk archive/delete** their ChatGPT conversations, plus **list Projects** and fetch their conversations. The extension must work without any external servers: **only DOM scraping + fetch calls to chatgpt.com backend endpoints**.
+You are an expert Chrome Extension engineer. Build a **Manifest V3** Chrome extension that adds a **Side Panel UI** for **chatgpt.com** to list chats and projects, filter/sort/select them, and perform **bulk archive/delete** operations via ChatGPT’s authenticated backend API. The extension must be robust, stoppable, and rate-limited.
 
-Your job: **produce the full extension source** (all files) and a short setup guide, but first **ask the user to verify required details** and provide any missing inputs. Use the suggested defaults if the user agrees.
-
----
-
-## 0) Non-negotiable constraints
-
-- Must be **Manifest V3**.
-- Must run on **https://chatgpt.com/** (not chat.openai.com).
-- UI must be in the **extension action popup** (no side panel for now).
-- It is expected that the popup closes on blur (Chrome behavior); do not try to override that.
-- All network calls must be done via the extension (service worker) using the user’s authenticated session.
-- Must avoid triggering anti-abuse: **configurable delay** between operations and a **Stop** button.
-- Must not require user to paste tokens manually. If Bearer token is needed, capture it via `webRequest` from existing requests.
+**Important:** Before generating code, you MUST ask the user to verify/collect a few required details (selectors/endpoints/flags). Use sensible defaults when possible. After user answers, output **full source files** ready to “Load unpacked”.
 
 ---
 
-## 1) First: ask the user to verify/answer these
+## 0) Constraints (must follow)
 
-Ask the user to confirm these items. Provide suggested defaults.
+- Target domain: **https://chatgpt.com/** (not chat.openai.com).
+- Chrome extension: **Manifest Version 3**.
+- UI must be a **Side Panel** (persistent, not auto-closing).
+- No external servers. Everything runs locally in the extension.
+- Do not require the user to paste auth tokens.
+- Use **rate-limiting** (delay between operations) and a **Stop** button.
+- Bulk actions must continue per-item even if some items fail.
+- Avoid brittle assumptions; log what’s happening and handle missing data gracefully.
 
-### A) Domain & selectors (verify)
-1. Confirm the site is `https://chatgpt.com/` and the left sidebar shows the conversation list.
-2. Confirm that each conversation in sidebar has a link like: `/c/<conversation_id>`.
-3. Confirm whether the sidebar “Projects” are visible and identifiable, and whether they have stable anchors/links we can scrape.
-   - If unclear: ask the user to provide a screenshot of the sidebar DOM or the CSS selectors they see in Inspect.
+---
 
-### B) API endpoints & payloads (verify)
-Ask user to confirm these endpoints exist in their browser (they already tested in devtools):
-- **Archive/Delete conversation**
-  - `PATCH https://chatgpt.com/backend-api/conversation/<conversation_id>`
-  - Archive payload: `{"is_archived":true}`
-  - Delete payload: `{"is_visible":false}`
-- **Undo rules**
-  - Undo is ONLY allowed for archive:
-    - Undo archive: send `{"is_archived":false}` (or equivalent endpoint flag — confirm exact boolean).
-  - Delete has no undo (UI stays crossed out, no actions).
+## 1) Ask the user to provide/confirm these details (with examples + defaults)
 
-### C) Project conversations endpoint (verify)
+### A) Chrome + OS basics (for side panel compatibility)
+1) What Chrome version? (Example: `Chrome 122+` recommended.)
+2) Confirm the extension is only used in Chromium-based browsers that support the Side Panel API.
+
+### B) Chat list scraping (DOM)
+Ask the user to confirm, using Inspect on chatgpt.com sidebar:
+1) Do chat links look like:
+   - Example: `<a href="/c/6984a52c-06f0-8332-9858-f12e1c3d28aa">Title</a>`
+2) Where is the scrollable container for the chat list? Provide a selector if possible.
+   - Example candidates: `[data-testid="sidebar"]`, `nav`, `aside`, or a div with `overflow: auto`.
+3) Are chat titles available in text nodes, or do we need an attribute like `aria-label`?
+
+**Default approach if unknown:** query for `a[href^="/c/"]` and derive chatId by stripping `/c/`.
+
+### C) Chat dates (optional)
+Ask:
+- Do you need dates for “My Chats”, and are they visible in the DOM?
+- If not visible, accept “blank” (do NOT invent).
+**Default:** show dates only for project chats (from API `update_time`), and leave “My Chats” date blank.
+
+### D) Backend API actions (verify exact payload keys)
+Ask user to confirm with DevTools → Network:
+1) Conversation mutate endpoint:
+   - `PATCH https://chatgpt.com/backend-api/conversation/<chatId>`
+2) Archive payload:
+   - default: `{"is_archived": true}`
+3) Undo archive payload:
+   - default: `{"is_archived": false}`
+4) Delete payload:
+   - default: `{"is_visible": false}`
+5) Confirm there is **NO undo for delete** (by design in UI).
+
+If user copied payload from console without quotes, remind them that JS objects show without quotes; JSON must be stringified.
+
+### E) Projects list and project chats API
 Ask user to confirm:
-- Project chat list page fetch:
-  - `GET https://chatgpt.com/backend-api/gizmos/<gizmo_id>/conversations?cursor=0`
-  - Response contains: `items[]` with fields including `id`, `title`, `update_time`, and `cursor` for pagination.
-- Project list load uses:
-  - `GET https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?...&cursor=<opaque-token>`
-  - Cursor is opaque; we must pass it as-is to paginate.
+1) How to scrape projects list from sidebar:
+   - Provide screenshot or DOM hints.
+2) Project chats endpoint:
+   - `GET https://chatgpt.com/backend-api/gizmos/<gizmoId>/conversations?cursor=0`
+3) Confirm gizmoId format:
+   - Example: `g-p-697f53b6281c8191a4815678ec395246`
+   - IMPORTANT: API uses the short gizmoId (no “-dailyemails” slug).
+4) Pagination:
+   - Response includes `cursor` (string or null).
+   - Items in `items[]` with `id`, `title`, `update_time`.
 
-### D) Defaults (suggest)
-- Default delay: **1200ms**
-- Load-all scroll delay: **1200ms**
-- Default sorting: **Natural Asc**
-- Projects section: **collapsed by default**
-- My Chats section: **expanded by default**
+**Default behavior:** fetch pages until `cursor == null` or Stop is pressed.
 
-If user doesn’t confirm a detail, implement with best-effort + clear fallback logs.
+### F) Rate limits + defaults
+Ask user to confirm default values:
+- Delay between operations (default **1200ms**)
+- Delay for “Load all” scroll step (default **1200ms**)
+- Sort default: **Natural Asc**
+- Projects collapsed by default: **true**
+- My Chats expanded by default: **true**
+
+### G) Side panel opening behavior (important)
+Explain that `chrome.sidePanel.open()` must be called **synchronously** in response to a user gesture.
+Ask user preference:
+1) Open side panel when clicking extension icon (recommended)
+2) Also add a menu/button inside the side panel to re-open/focus it (optional)
+**Default:** open on extension icon click.
 
 ---
 
-## 2) Required behavior (must implement exactly)
+## 2) Required UI + behavior (implement exactly)
 
-### 2.1 UI layout rules
-- Popup is bigger than default (use `action.default_popup` + CSS sizing).
-- **Top bar fixed** (not scrolled away):
-  - Buttons: `Refresh`, `Load all`
-  - Filter: text input “name contains…”
+### A) Side panel layout
+- Top toolbar fixed (sticky):
+  - Brand icon `brand.png` shown at top-left before buttons (32x32 image).
+  - Buttons: **Refresh**, **Load all**
+  - Filter input: “name contains…”
   - Sort mode: `Natural` / `Alphabetical`
-  - Sort direction toggle button with arrows: `▲` / `▼`
-- Under top bar: always show a status line:
+  - Sort direction toggle: ▲ / ▼
+- Under top toolbar: a single status line:
   - `Loaded: X (Chats A, Projects B) • Filtered: Y • Selected: Z`
-- **Bottom bar fixed**:
+- Middle scroll area:
+  - Tree list
+- Bottom toolbar fixed:
   - Mode: `Archive` / `Delete`
-  - Delay(ms) number input
+  - Delay(ms)
   - Buttons: `Select all`, `Select none`, `Run bulk`, `Stop`
-- Main middle area is scrollable and shows tree list.
 
-### 2.2 Two collapsible sections
-- **My Chats** (collapsible)
-  - Shows list of conversations scraped from sidebar
-- **My Projects** (collapsible, collapsed by default)
-  - Initially lists only project names (scraped)
-  - Each project row has `open` and `load chats`
+### B) Sections
+- Collapsible **My Chats**
+- Collapsible **My Projects** (collapsed by default)
+- My Projects shows project names; each project row has:
+  - `open` (open project in current tab)
+  - `load chats` (fetch project chats via API, paginated)
+  - Expand/collapse arrow to show project chats
 
-### 2.3 Sorting
-Two sort modes (both support asc/desc):
-- **Natural**: matches ChatGPT sidebar order (DOM order)
-- **Alphabetical**: by title
+### C) Filtering rule (special)
+- Global filter applies to My Chats chat titles.
+- For projects:
+  - If project is collapsed: project row is shown only if project name matches filter.
+  - If project is expanded: project row is ALWAYS shown, filter applies ONLY to its conversations.
 
-### 2.4 Filtering
-- Filter is **local only** (no server).
-- Filtering applies to:
-  - **My Chats**: filter chat titles
-  - **My Projects** special rule:
-    - If a project is **collapsed**, it is shown only if project name matches filter.
-    - If a project is **expanded**, it is shown **regardless of filter**, but filter applies to its **conversations** list.
+### D) Actions per chat row
+Each chat row shows: checkbox, title, optional date, and actions.
+- If not mutated:
+  - `open`, `archive`, `delete` (no confirmation)
+- After archive:
+  - Crossed out + badge “archive” + actions: `open`, `undo`
+- After delete:
+  - Crossed out + badge “delete” + **no actions** (no undo, no open)
 
-### 2.5 Row actions
-Each “My Chat” row:
-- Checkbox selection for bulk.
-- Title + date on right if available.
-- Actions:
-  - If not mutated:
-    - `open`, `archive`, `delete`
-  - If mutated by archive:
-    - crossed out + badge `archive` + show `open` + `undo`
-  - If mutated by delete:
-    - crossed out + badge `delete` + show **no actions**
-- No confirmation dialogs.
-
-Project view:
-- A project row has `load chats` and `open`.
-- When project expanded, render its chats under it.
-- Project-level checkbox selects **all chats inside that project** (entire project list, not only filtered).
-- Project chats have the same per-chat action rules as My Chats.
-- “load chats” uses fetch to backend API and supports pagination via cursor.
-- While loading, the project auto-expands so user sees progress.
-- When loading ends (success, stop, or error), auto-collapse the project.
-
-### 2.6 Bulk operation behavior
-- Bulk operations apply to selected items:
-  - For My Chats: selected chats visible under current filter.
-  - For Project: selected chats inside that project.
-- Bulk respects delay between each PATCH.
-- During any run (bulk or load-all scroll or project load):
-  - Entire UI is disabled/greyed out except Stop button.
-  - Stop cancels gracefully (does not revert completed actions).
-- After a bulk run ends (even if stopped):
-  - Locally mark completed actions (crossout + badge) for processed items.
-  - Reload ChatGPT tab (same as single-line operations).
-
-### 2.7 “Refresh suggested” behavior
-- After any successful archive/delete/undo action:
-  - Set `Refresh` button style to red/bold (suggest refresh).
-- Single-line delete/archive should reload the main tab (My Chats actions do; project actions optional but ok).
+### E) Bulk behavior
+- During any long action (bulk archive/delete, load-all, project fetch):
+  - Disable/gray out UI except Stop.
+  - Stop interrupts cleanly (does not undo completed items).
+- After bulk ends (even if stopped):
+  - Locally mark each successful item as mutated (cross-out + badge).
+  - Reload the active chatgpt.com tab.
+  - Make Refresh button visually “suggested” (red outline) after any mutation.
 
 ---
 
-## 3) How the extension must work technically
+## 3) Technical architecture (must implement)
 
-### 3.1 Architecture
-- **content.js**
-  - Scrapes sidebar DOM for:
-    - My Chats list: `{id, title, url, naturalIndex, dateLabel?}`
-    - Projects list: `{gizmoId, title, url, naturalIndex}`
-  - Implements “Load all” by scrolling the sidebar container until stable.
-  - Responds to messages from popup with these operations:
-    - `LIST_CHATS_AND_PROJECTS`
-    - `SCROLL_LOAD_ALL`
-    - `STOP`
-- **sw.js** (service worker)
-  - Captures Authorization Bearer token by listening to outbound `chatgpt.com/backend-api/*` requests using `webRequest`.
-  - Provides message handlers:
-    - `API_HAS_BEARER`
-    - `API_PATCH_CONVERSATION` (PATCH archive/delete/unarchive)
-    - `API_GET_PROJECT_CONVERSATIONS_PAGE` (GET gizmo conversations page)
-- **popup.html / popup.js / popup.css**
-  - Implements UI and logic described above.
-  - Does all user-facing rendering and local state:
-    - selection sets
-    - collapsed state
-    - expanded-per-project state
-    - mutated state
-
-### 3.2 Required permissions (minimum)
-- `activeTab`, `scripting`, `storage`, `webRequest`
-- `host_permissions`: `https://chatgpt.com/*`
-
-### 3.3 Safety / robustness
-- If bearer token is missing:
-  - Show log message: “Bearer not captured yet… open chatgpt.com and trigger any backend-api request.”
-- Handle API failures per item; continue bulk.
-- Cursor pagination tokens are opaque; do not parse.
-
----
-
-## 4) Deliverables you must output
-
-After the user confirms the items in section 1 (or you proceed with defaults), output **all files**:
-
+### Files to output
 - `manifest.json`
-- `sw.js`
-- `content.js`
-- `popup.html`
-- `popup.js`
-- `popup.css`
+- `sw.js` (service worker)
+- `content.js` (sidebar scraping + scroll load-all)
+- `sidepanel.html`
+- `sidepanel.js`
+- `sidepanel.css`
+- `brand.png` (assume user provides file; include placeholder reference)
 
-Also output a short “Install & Test” guide:
-1. Load unpacked extension
-2. Open chatgpt.com
-3. Click extension icon
-4. Click Refresh
-5. Click Load all
-6. Select some chats
-7. Run bulk archive with delay
-8. Confirm crossed-out state and refresh suggestion
-9. Try undo on an archived chat
+### Service worker responsibilities
+- Capture the Authorization Bearer token via `chrome.webRequest.onBeforeSendHeaders`
+  - filter: `https://chatgpt.com/backend-api/*`
+  - store in `chrome.storage.session`
+- Provide message APIs:
+  - `API_HAS_BEARER`
+  - `API_PATCH_CONVERSATION` (PATCH conversation endpoint with JSON payload)
+  - `API_GET_PROJECT_CONVERSATIONS_PAGE` (GET project conversations page)
+- Open side panel on click:
+  - **DO NOT `await` anything before `chrome.sidePanel.open()`** to avoid:
+    “may only be called in response to a user gesture”
+  - Example pattern:
+    - call `chrome.sidePanel.open()` first (no await)
+    - then `chrome.sidePanel.setOptions()` (no await)
+
+### Content script responsibilities
+- Scrape My Chats:
+  - find all `a[href^="/c/"]`
+  - extract chatId from href
+  - extract title from element text/aria-label
+  - preserve natural order index
+- Scrape My Projects:
+  - best-effort (ask user for selectors if needed)
+- Implement “Load all”:
+  - identify sidebar scroll container
+  - scroll to bottom, wait delay, repeat until count stabilizes N rounds or Stop pressed
+- Implement STOP flag.
+
+### Side panel script responsibilities
+- Render UI + tree
+- Manage state:
+  - selected chats
+  - collapsed sections
+  - expanded projects
+  - loaded project chats cache
+  - mutated map (archive/delete)
+  - refresh suggested indicator
+- Send messages to content script for scraping/scroll
+- Send messages to service worker for API calls
+- Bulk runner with delay and Stop support.
 
 ---
 
-## 5) Suggested defaults to apply unless user overrides
+## 4) Output format
+After user confirms the required details, output code as:
+- One code block per file, labeled with filename.
+- Keep files complete and directly runnable.
 
-- Delay(ms): `1200`
-- Load all scroll delay: `1200`
-- Sort: Natural Asc
-- Projects collapsed by default
-- My Chats expanded by default
-- Project “load chats” starts at cursor `0`
-- Project “load chats” stops when response `cursor` is null
-- Dates:
-  - Use `update_time` from project API for project chats
-  - For My Chats: show date only if it can be scraped; otherwise blank (do not invent)
-
----
-
-## 6) Important: ask the user this exact final verification question
-
-Before generating the code, ask:
-
-> “Please confirm: for Undo archive, should the PATCH payload be `{"is_archived":false}` to the same conversation endpoint?”
-
-If they are unsure, instruct them how to verify in devtools (Network tab) and then proceed using that default.
+Also include a short “Install & Test” checklist:
+1) Load unpacked in `chrome://extensions`
+2) Open `https://chatgpt.com`
+3) Click extension icon to open side panel
+4) Press Refresh
+5) Press Load all
+6) Select 1–2 chats → Archive
+7) Verify cross-out + undo on archive
+8) Verify delete has no undo
+9) Verify bulk reloads main tab and refresh suggested turns red
 
 ---
 
-Now begin: ask the verification questions (Section 1) in a concise checklist, then generate full files.
+## 5) Begin now
+Start by asking the user the verification checklist in section 1.
+Then (after answers) generate the full files.
