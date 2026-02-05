@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Chat Manager</title>
+
+  <!-- Reuse the same markup + CSS you already have in popup.html.
+       Easiest: copy/paste popup.html content here, unchanged. -->
+
+  <!-- I’m using your current popup.html as-is, except:
+       - side panel should not force a fixed width/height on body (Chrome controls it).
+       - Everything else can remain identical. -->
+
+  <style>
+    :root { --pad: 10px; }
+    body {
+      font: 13px system-ui, sans-serif;
+      margin: 0;
+      overflow: hidden;
+    }
+    .shell { height: 100vh; display: flex; flex-direction: column; }
+
+    .topwrap {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      padding: var(--pad);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+    .topmeta { font-size: 12px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .bottombar {
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      row-gap: 6px;
+      padding: var(--pad);
+      border-top: 1px solid #ddd;
+    }
+
+    .main { flex: 1; overflow: auto; padding: var(--pad); background: #fff; }
+
+    input[type="text"] { width: 190px; padding: 6px 8px; }
+    input[type="number"] { width: 90px; padding: 6px 8px; }
+    select { padding: 6px 8px; }
+    button { padding: 6px 10px; }
+    .arrowBtn { padding: 6px 8px; font-weight: 700; }
+
+    .tree { border: 1px solid #ddd; border-radius: 10px; padding: 8px; }
+
+    .section { margin: 8px 0 12px; }
+    .hdr { display: flex; align-items: center; gap: 8px; font-weight: 700; padding: 4px 0; }
+    .items { margin-left: 18px; margin-top: 6px; }
+
+    .row { display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
+    .title { flex: 1; min-width: 220px; }
+    .date { color:#666; font-size: 12px; white-space: nowrap; }
+
+    a { color:#666; font-size: 12px; text-decoration: underline; }
+    a.danger { color: #b00020; font-weight: 700; }
+
+    .mutated .title { text-decoration: line-through; color: #666; }
+    .mutBadge { font-size: 11px; color: #666; border: 1px solid #ddd; border-radius: 999px; padding: 1px 6px; }
+
+    .status {
+      margin-top: 10px;
+      white-space: pre-wrap;
+      background: #fafafa;
+      border: 1px solid #eee;
+      padding: 8px;
+      border-radius: 10px;
+      max-height: 110px;
+      overflow: auto;
+    }
+
+    .disabled { opacity: 0.45; pointer-events: none; user-select: none; }
+    #btnStop { pointer-events: auto !important; opacity: 1 !important; }
+
+    #btnRefresh.suggest { border: 2px solid #b00020; color: #b00020; font-weight: 700; }
+
+    #brandIcon {
+      width: 32px;
+      height: 32px;
+      margin-right: 6px;
+      border-radius: 4px;
+      image-rendering: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topwrap" id="topwrap">
+      <div class="topbar">
+        <img id="brandIcon" src="brand.png" alt="Brand" width="32" height="32" />
+        <button id="btnRefresh">Refresh</button>
+        <button id="btnLoadAll">Load all</button>
+
+        <label>Filter:</label>
+        <input id="filterText" type="text" placeholder="name contains…" />
+
+        <label>Sort:</label>
+        <select id="sortMode">
+          <option value="natural">Natural</option>
+          <option value="alpha">Alphabetical</option>
+        </select>
+
+        <button class="arrowBtn" id="btnDir" title="Toggle Asc/Desc">▲</button>
+      </div>
+
+      <div class="topmeta" id="meta2">Loaded: 0 • Filtered: 0 • Selected: 0</div>
+    </div>
+
+    <div class="main" id="main">
+      <div class="tree" id="tree"></div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="bottombar" id="bottombar">
+      <label>Mode:</label>
+      <select id="mode">
+        <option value="archive">Archive</option>
+        <option value="delete">Delete</option>
+      </select>
+
+      <label>Delay(ms):</label>
+      <input id="delayMs" type="number" min="250" step="250" value="1200" />
+
+      <button id="btnSelectAll">Select all</button>
+      <button id="btnSelectNone">Select none</button>
+
+      <button id="btnRun">Run bulk</button>
+      <button id="btnStop">Stop</button>
+    </div>
+  </div>
+
+  <!-- Reuse your existing logic -->
+  <script src="popup.js"></script>
+</body>
+</html>
