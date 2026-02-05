@@ -54,8 +54,7 @@ If you don’t trust this extension after reading the code (and you generally **
 ## Screenshots
 
 ### Side Panel UI
-```md
 ![Side panel UI](./sidepanel.png)
+
 ### Side Panel UI
-```md
 ![Popup UI](./popup.png)
