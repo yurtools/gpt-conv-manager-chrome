@@ -34,6 +34,7 @@ If you don’t trust this extension after reading the code (and you generally **
 
 - **Side Panel UI** (persistent; doesn’t close when you click elsewhere) or **Poup UI** version
 - **My Chats** list with:
+  - Load all conversations is done by forcing GPTs conversation list to scroll, and then scraping the DOM
   - local **filter** (“name contains…”)
   - **sort**: Natural (sidebar order) or Alphabetical, Asc/Desc
   - multi-select checkboxes + **bulk archive/delete**
@@ -56,5 +57,16 @@ If you don’t trust this extension after reading the code (and you generally **
 ### Side Panel UI
 ![Side panel UI](./sidepanel.png)
 
-### Side Panel UI
+###  Popup UI
 ![Popup UI](./popup.png)
+
+### How to install
+- copy the repo or generate your own code
+- In chrome or crome base browser navigate to chrome://extensions/ and in the right top conner activate "Developer mode"
+   ![Side panel UI](./setup.step01.png)
+- Use "Load unpacked" and select a folder with popup or sidepanel implementation
+   ![Side panel UI](./setup.step2.png)
+- Make sure extension is enabled
+  ![Side panel UI](./setup.step03.png)
+- Login to your chat GPT account and bring up the extensin
+  ![Side panel UI](./setup.step04.png)
